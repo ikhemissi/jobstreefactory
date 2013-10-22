@@ -1,6 +1,4 @@
-<!--
-  This view is used to render the installed plugins page.
--->
 <div>
-  This plugin is a sample to explain how to write a Jenkins plugin.
+  A plug-in for creating branches using the <a href="http://maven.apache.org/plugins/maven-release-plugin/">maven-release-plugin</a> from Jenkins.
+  This newly created branch is used to generate new jobs.
 </div>

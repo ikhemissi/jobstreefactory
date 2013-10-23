@@ -25,7 +25,6 @@ package org.jenkinsci.plugins.jobstreefactory;
 
 import hudson.Extension;
 import hudson.Launcher;
-import hudson.Util;
 import hudson.maven.AbstractMavenProject;
 import hudson.maven.MavenBuild;
 import hudson.maven.MavenModule;
@@ -42,10 +41,10 @@ import hudson.model.Item;
 import hudson.model.Run;
 import hudson.security.Permission;
 import hudson.security.PermissionGroup;
+import hudson.security.PermissionScope;
 import hudson.tasks.BuildWrapper;
 import hudson.tasks.BuildWrapperDescriptor;
 import hudson.tasks.Builder;
-import hudson.util.FormValidation;
 import hudson.util.RunList;
 
 import java.io.IOException;
@@ -53,18 +52,15 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.Map;
+import jenkins.model.Jenkins;
 
-import javax.servlet.ServletException;
 
 import net.sf.json.JSONObject;
 
 import org.apache.commons.lang.StringUtils;
 import org.jvnet.localizer.Localizable;
 import org.kohsuke.stapler.DataBoundConstructor;
-import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,33 +79,24 @@ public class BranchBuildWrapper extends BuildWrapper {
 	
 	private transient Logger log = LoggerFactory.getLogger(BranchBuildWrapper.class);
 	
-	/** For backwards compatibility with older configurations. @deprecated */
-	@Deprecated
-	public transient boolean              defaultVersioningMode;
-	
 	private String                        scmUserEnvVar                = "";
 	private String                        scmPasswordEnvVar            = "";
 	private String                        releaseEnvVar                = DescriptorImpl.DEFAULT_RELEASE_ENVVAR;
-	private String                        releaseGoals                 = DescriptorImpl.DEFAULT_RELEASE_GOALS;
-	private String                        dryRunGoals                  = DescriptorImpl.DEFAULT_DRYRUN_GOALS;
+	private String                        releaseGoals                 = DescriptorImpl.DEFAULT_RELEASE_BRANCH_GOALS;
 	public boolean                        selectCustomScmCommentPrefix = DescriptorImpl.DEFAULT_SELECT_CUSTOM_SCM_COMMENT_PREFIX;
 	public boolean                        selectAppendHudsonUsername   = DescriptorImpl.DEFAULT_SELECT_APPEND_HUDSON_USERNAME;
 	public boolean                        selectScmCredentials         = DescriptorImpl.DEFAULT_SELECT_SCM_CREDENTIALS;
 	
-	public int                            numberOfReleaseBuildsToKeep  = DescriptorImpl.DEFAULT_NUMBER_OF_RELEASE_BUILDS_TO_KEEP;
-	
 	@DataBoundConstructor
-	public BranchBuildWrapper(String releaseGoals, String dryRunGoals, boolean selectCustomScmCommentPrefix, boolean selectAppendHudsonUsername, boolean selectScmCredentials, String releaseEnvVar, String scmUserEnvVar, String scmPasswordEnvVar, int numberOfReleaseBuildsToKeep) {
+	public BranchBuildWrapper(String releaseGoals, boolean selectCustomScmCommentPrefix, boolean selectAppendHudsonUsername, boolean selectScmCredentials, String releaseEnvVar, String scmUserEnvVar, String scmPasswordEnvVar, int numberOfBranchesToKeep) {
 		super();
 		this.releaseGoals = releaseGoals;
-		this.dryRunGoals = dryRunGoals;
 		this.selectCustomScmCommentPrefix = selectCustomScmCommentPrefix;
 		this.selectAppendHudsonUsername = selectAppendHudsonUsername;
 		this.selectScmCredentials = selectScmCredentials;
 		this.releaseEnvVar = releaseEnvVar;
 		this.scmUserEnvVar = scmUserEnvVar;
 		this.scmPasswordEnvVar = scmPasswordEnvVar;
-		this.numberOfReleaseBuildsToKeep = numberOfReleaseBuildsToKeep;
 	}
 
 
@@ -136,8 +123,9 @@ public class BranchBuildWrapper extends BuildWrapper {
 		BranchArgumentsAction args = build.getAction(BranchArgumentsAction.class);
 		StringBuilder buildGoals = new StringBuilder();
 
-		buildGoals.append("-DdevelopmentVersion=").append(args.getDevelopmentVersion()).append(' ');
-		buildGoals.append("-DreleaseVersion=").append(args.getReleaseVersion()).append(' ');
+		buildGoals.append("-DdevelopmentVersion=").append(args.getDevelopmentVersion()).append(' '); // current maven version
+		buildGoals.append("-DreleaseVersion=").append(args.getReleaseVersion()).append(' '); // new branch maven version
+                buildGoals.append("-DbranchName=").append(args.getBranchName()).append(' '); // new branch name
 
 		if (args.getScmUsername() != null) {
 			buildGoals.append("-Dusername=").append(args.getScmUsername()).append(' ');
@@ -156,19 +144,10 @@ public class BranchBuildWrapper extends BuildWrapper {
 			buildGoals.append("\" ");
 		}
 
-		if (args.getScmTagName() != null) {
-			buildGoals.append("-Dtag=").append(args.getScmTagName()).append(' ');
-		}
-
-		if (args.isDryRun()) {
-			buildGoals.append(getDryRunGoals());
-		}
-		else {
-			buildGoals.append(getReleaseGoals());
-		}
+		buildGoals.append(getReleaseGoals());
 
 		build.addAction(new BranchArgumentInterceptorAction(buildGoals.toString()));
-		build.addAction(new BranchBadgeAction(args.getReleaseVersion(), args.isDryRun()));
+		build.addAction(new BranchBadgeAction(args.getReleaseVersion()));
 
 		return new Environment() {
 
@@ -181,56 +160,8 @@ public class BranchBuildWrapper extends BuildWrapper {
 			}
 
 			@Override
-			public boolean tearDown(@SuppressWarnings("rawtypes") AbstractBuild bld, BuildListener lstnr)
-					throws IOException, InterruptedException {
-				boolean retVal = true;
-				final MavenModuleSet mmSet = getModuleSet(bld);
-				BranchArgumentsAction args = bld.getAction(BranchArgumentsAction.class);
-				
-				if (args.isDryRun()) {
-					lstnr.getLogger().println("[M2Release] its only a dryRun, no need to mark it for keep");
-				}
-
-				int buildsKept = 0;
-				if (bld.getResult() != null && bld.getResult().isBetterOrEqualTo(Result.SUCCESS) && !args.isDryRun()) {
-					if (numberOfReleaseBuildsToKeep > 0 || numberOfReleaseBuildsToKeep == -1) {
-						// keep this build.
-						lstnr.getLogger().println("[M2Release] assigning keep build to current build.");
-						bld.keepLog();
-						buildsKept++;
-					}
-
-					// the value may have changed since a previous release so go searching...
-					log.debug("looking for extra release builds to lock/unlock.");
-					for (Run run : (RunList<? extends Run>) (bld.getProject().getBuilds())) {
-						log.debug("checking build #{}", run.getNumber());
-						if (isSuccessfulReleaseBuild(run)) {
-							log.debug("build #{} was successful.", run.getNumber());
-							if (bld.getNumber() != run.getNumber()) { // not sure we still need this check..
-								if (shouldKeepBuildNumber(numberOfReleaseBuildsToKeep, buildsKept)) {
-									buildsKept++;
-									if (!run.isKeepLog()) {
-										lstnr.getLogger().println(
-												"[M2Release] assigning keep build to build " + run.getNumber());
-										run.keepLog(true);
-									}
-								}
-								else {
-									if (run.isKeepLog()) {
-										lstnr.getLogger().println(
-												"[M2Release] removing keep build from build " + run.getNumber());
-										run.keepLog(false);
-									}
-								}
-							}
-						}
-						else {
-							log.debug("build #{} was NOT successful release build.", run.getNumber());
-						}
-					}
-				}
-
-				return retVal;
+			public boolean tearDown(@SuppressWarnings("rawtypes") AbstractBuild bld, BuildListener lstnr) throws IOException, InterruptedException {
+				return true;
 			}
 
 			/**
@@ -240,7 +171,7 @@ public class BranchBuildWrapper extends BuildWrapper {
 			 */
 			private boolean isSuccessfulReleaseBuild(Run run) {
 				BranchBadgeAction a = run.getAction(BranchBadgeAction.class);
-				if (a != null && !run.isBuilding() && run.getResult().isBetterOrEqualTo(Result.SUCCESS) && !a.isDryRun()) {
+				if (a != null && !run.isBuilding() && run.getResult().isBetterOrEqualTo(Result.SUCCESS)) {
 					return true;
 				}
 				return false;
@@ -271,14 +202,6 @@ public class BranchBuildWrapper extends BuildWrapper {
 	public void setSelectAppendHudsonUsername(boolean selectAppendHudsonUsername) {
 		this.selectAppendHudsonUsername = selectAppendHudsonUsername;
 	}
-	
-	public int getNumberOfReleaseBuildsToKeep() {
-		return numberOfReleaseBuildsToKeep;
-	}
-	
-	public void setNumberOfReleaseBuildsToKeep(int numberOfReleaseBuildsToKeep) {
-		this.numberOfReleaseBuildsToKeep = numberOfReleaseBuildsToKeep;
-	}
 
 	private MavenModuleSet getModuleSet(AbstractBuild<?,?> build) {
 		if (build instanceof MavenBuild) {
@@ -298,12 +221,12 @@ public class BranchBuildWrapper extends BuildWrapper {
 	}
 
 
-	public static boolean hasReleasePermission(@SuppressWarnings("rawtypes") AbstractProject job) {
+	public static boolean hasBranchPermission(@SuppressWarnings("rawtypes") AbstractProject job) {
 		return job.hasPermission(DescriptorImpl.CREATE_BRANCH);
 	}
 
 
-	public static void checkReleasePermission(@SuppressWarnings("rawtypes") AbstractProject job) {
+	public static void checkBranchPermission(@SuppressWarnings("rawtypes") AbstractProject job) {
 		job.checkPermission(DescriptorImpl.CREATE_BRANCH);
 	}
 
@@ -320,11 +243,7 @@ public class BranchBuildWrapper extends BuildWrapper {
 	}
 	
 	public String getReleaseGoals() {
-		return StringUtils.isBlank(releaseGoals) ? DescriptorImpl.DEFAULT_RELEASE_GOALS : releaseGoals;
-	}
-	
-	public String getDryRunGoals() {
-		return StringUtils.isBlank(dryRunGoals) ? DescriptorImpl.DEFAULT_DRYRUN_GOALS : dryRunGoals;
+		return StringUtils.isBlank(releaseGoals) ? DescriptorImpl.DEFAULT_RELEASE_BRANCH_GOALS : releaseGoals;
 	}
 	
 
@@ -366,80 +285,17 @@ public class BranchBuildWrapper extends BuildWrapper {
 		public static final Permission CREATE_BRANCH;
 
 		static {
-			Permission tmpPerm = null;
-			try {
-				// Jenkins changed the security model in a non backward compatible way :-(
-				// JENKINS-10661
-				Class<?> permissionScopeClass = Class.forName("hudson.security.PermissionScope");
-				Object psArr = Array.newInstance(permissionScopeClass, 2);
-				Field f;
-				f = permissionScopeClass.getDeclaredField("JENKINS");
-				Array.set(psArr, 0, f.get(null));
-				f = permissionScopeClass.getDeclaredField("ITEM");
-				Array.set(psArr, 1, f.get(null));
-				
-				Constructor<Permission> ctor = Permission.class.getConstructor(PermissionGroup.class, 
-						String.class, 
-						Localizable.class, 
-						Permission.class, 
-//						boolean.class,
-						permissionScopeClass);
-						//permissionScopes.getClass());
-				tmpPerm = ctor.newInstance(Item.PERMISSIONS, 
-				                           "Release",
-				                            Messages._CreateBranchPermission_Description(),
-				                            Hudson.ADMINISTER,
-//				                            true,
-				                            f.get(null));
-				LoggerFactory.getLogger(BranchBuildWrapper.class).info("Using new style Permission with PermissionScope");
-
-			}
-			// all these exceptions are Jenkins < 1.421 or Hudson
-			// wouldn't multicatch be nice!
-			catch (NoSuchMethodException ex) {
-				LoggerFactory.getLogger(BranchBuildWrapper.class).warn("Using Legacy Permission as new PermissionScope not detected. {}", ex.getMessage());
-			}
-			catch (InvocationTargetException ex) {
-				LoggerFactory.getLogger(BranchBuildWrapper.class).warn("Using Legacy Permission as new PermissionScope not detected. {}", ex.getMessage());
-			}
-			catch (IllegalArgumentException ex) {
-				LoggerFactory.getLogger(BranchBuildWrapper.class).warn("Using Legacy Permission as new PermissionScope not detected. {}", ex.getMessage());
-			}
-			catch (IllegalAccessException ex) {
-				LoggerFactory.getLogger(BranchBuildWrapper.class).warn("Using Legacy Permission as new PermissionScope not detected. {}", ex.getMessage());
-			}
-			catch (InstantiationException ex) {
-				LoggerFactory.getLogger(BranchBuildWrapper.class).warn("Using Legacy Permission as new PermissionScope not detected. {}", ex.getMessage());
-			}
-			catch (NoSuchFieldException ex) {
-				LoggerFactory.getLogger(BranchBuildWrapper.class).warn("Using Legacy Permission as new PermissionScope not detected. {}", ex.getMessage());
-			}
-			catch (ClassNotFoundException ex) {
-				LoggerFactory.getLogger(BranchBuildWrapper.class).warn("Using Legacy Permission as new PermissionScope not detected. {}", ex.getMessage());
-			}
-			if (tmpPerm == null) {
-				LoggerFactory.getLogger(BranchBuildWrapper.class).warn("Using Legacy Permission as new style permission with PermissionScope failed");
-				tmpPerm = new Permission(Item.PERMISSIONS,
-				                         "Release", //$NON-NLS-1$
-				                          Messages._CreateBranchPermission_Description(),
-				                          Hudson.ADMINISTER);
-			}
-			CREATE_BRANCH = tmpPerm;
+                    CREATE_BRANCH = new Permission(Jenkins.PERMISSIONS, "Branch", Messages._CreateBranchPermission_Description(), Jenkins.ADMINISTER, PermissionScope.JENKINS);
 		}
 
-		public static final String     DEFAULT_RELEASE_GOALS = "-Dresume=false release:prepare release:perform"; //$NON-NLS-1$
-		public static final String     DEFAULT_DRYRUN_GOALS = "-Dresume=false -DdryRun=true release:prepare"; //$NON-NLS-1$
-		public static final String     DEFAULT_RELEASE_ENVVAR = "IS_M2RELEASEBUILD"; //$NON-NLS-1$
+		public static final String     DEFAULT_RELEASE_BRANCH_GOALS = "--batch-mode -Dresume=false -DupdateDependencies=true -DupdateWorkingCopyVersions=false -DupdateBranchVersions=true release:branch"; //$NON-NLS-1$
+		public static final String     DEFAULT_RELEASE_ENVVAR = "IS_JOBSTREEFACTORYBUILD"; //$NON-NLS-1$
 		public static final String     DEFAULT_RELEASE_VERSION_ENVVAR = "MVN_RELEASE_VERSION"; //$NON-NLS-1$
 		public static final String     DEFAULT_DEV_VERSION_ENVVAR = "MVN_DEV_VERSION"; //$NON-NLS-1$
-		public static final String     DEFAULT_DRYRUN_ENVVAR = "MVN_ISDRYRUN"; //$NON-NLS-1$
 
 		public static final boolean    DEFAULT_SELECT_CUSTOM_SCM_COMMENT_PREFIX = false;
 		public static final boolean    DEFAULT_SELECT_APPEND_HUDSON_USERNAME    = false;
-		public static final boolean    DEFAULT_SELECT_SCM_CREDENTIALS           = false;
-
-		public static final int        DEFAULT_NUMBER_OF_RELEASE_BUILDS_TO_KEEP = 1;
-		
+		public static final boolean    DEFAULT_SELECT_SCM_CREDENTIALS           = false;	
 
 
 		public DescriptorImpl() {

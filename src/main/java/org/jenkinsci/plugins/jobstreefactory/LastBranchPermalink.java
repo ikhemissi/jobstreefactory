@@ -52,7 +52,7 @@ public class LastBranchPermalink extends PeepholePermalink {
       BranchBadgeAction a = run.getAction(BranchBadgeAction.class);
       if (a != null) {
           if (!run.isBuilding()) {
-              if (!a.isDryRun() && run.getResult() == Result.SUCCESS) {
+              if (run.getResult() == Result.SUCCESS) {
                   retVal = true;
               }
           }

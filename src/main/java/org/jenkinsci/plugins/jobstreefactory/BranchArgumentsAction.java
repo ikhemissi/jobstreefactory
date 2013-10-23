@@ -36,11 +36,15 @@ import java.util.TreeMap;
  */
 public class BranchArgumentsAction implements Action {
 
-	/** The release version of the top level pom. */
+	/** New branch maven version */
 	private String releaseVersion = null;
-	/** The development version of the top level pom */
+	/** Current maven version */
 	private String developmentVersion = null;
-
+        /** New branch name */
+        private String branchName;
+        /** The scm base where the branch should be created */
+        private String branchBase;
+        
 	/** release versions of sub modules (if different to the top level pom) */
 	private Map<String, String> moduleReleaseVersions = null;
 
@@ -52,12 +56,10 @@ public class BranchArgumentsAction implements Action {
 
 	private transient String repoDescription;
 
-	private boolean dryRun = false;
-
 	private transient String scmUsername;
 	private transient String scmPassword;
 	private transient String scmCommentPrefix;
-	private String scmTagName;
+	
 
 	private transient boolean appendHusonUserName;
 	private transient String hudsonUserName;
@@ -96,6 +98,22 @@ public class BranchArgumentsAction implements Action {
 	public void setDevelopmentVersion(String developmentVersion) {
 		this.developmentVersion = developmentVersion;
 	}
+        
+        public String getBranchName() {
+		return branchName;
+	}
+
+	public void setBranchName(String branchName) {
+		this.branchName = branchName;
+	}
+        
+        public String getBranchBase() {
+		return branchBase;
+	}
+
+	public void setBranchBase(String branchBase) {
+		this.branchBase = branchBase;
+	}
 
 	public Map<String, String> getModuleReleaseVersions() {
 		return Collections.unmodifiableMap(moduleReleaseVersions);
@@ -121,14 +139,6 @@ public class BranchArgumentsAction implements Action {
 		this.repoDescription = repoDescription;
 	}
 
-	public boolean isDryRun() {
-		return dryRun;
-	}
-
-	public void setDryRun(boolean dryRun) {
-		this.dryRun = dryRun;
-	}
-
 	public String getScmUsername() {
 		return scmUsername;
 	}
@@ -151,14 +161,6 @@ public class BranchArgumentsAction implements Action {
 
 	public void setScmCommentPrefix(String scmCommentPrefix) {
 		this.scmCommentPrefix = scmCommentPrefix;
-	}
-
-	public String getScmTagName() {
-		return scmTagName;
-	}
-
-	public void setScmTagName(String scmTagName) {
-		this.scmTagName = scmTagName;
 	}
 
 	public boolean isAppendHusonUserName() {

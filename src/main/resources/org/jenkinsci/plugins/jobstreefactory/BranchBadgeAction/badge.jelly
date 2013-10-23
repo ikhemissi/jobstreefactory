@@ -1,8 +1,3 @@
 <j:jelly xmlns:j="jelly:core">
-<j:if test="${it.isDryRun()}">
-       <img width="16" height="16" title="${it.tooltipText}" src="${rootURL}/plugin/jobstreefactory/img/new-branch-16.gif"/>
-    </j:if>
-    <j:if test="${!it.isDryRun()}">
-	   <img width="16" height="16" title="${it.tooltipText}" src="${imagesURL}/16x16/package.png"/>
-	</j:if>
+    <img width="16" height="16" title="${it.tooltipText}" src="${rootURL}/plugin/jobstreefactory/img/new-branch-16.gif"/>
 </j:jelly>  

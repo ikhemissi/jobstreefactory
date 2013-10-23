@@ -37,8 +37,6 @@ import hudson.util.ArgumentListBuilder;
 public class BranchArgumentInterceptorAction implements MavenArgumentInterceptorAction {
 
 	private String goalsAndOptions;
-	@Deprecated
-	private transient boolean isDryRun; // keep backward compatible
 
 	public BranchArgumentInterceptorAction(String goalsAndOptions) {
 		this.goalsAndOptions = goalsAndOptions;

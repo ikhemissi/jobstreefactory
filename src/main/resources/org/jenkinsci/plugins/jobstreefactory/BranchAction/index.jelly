@@ -19,9 +19,9 @@
 						<f:textbox name="releaseVersion" value="${it.computeBranchVersion()}" />
 					</f:entry>
                                         
-                                        <f:optionalBlock name="specifyBranchBase" title="Specify branch base" checked="false">
+                                        <f:optionalBlock name="specifyBranchBase" title="Specify branch base" checked="true">
 						<f:entry title="Branch base">
-							<f:textbox name="branchBase" value="${it.getDefaultBranchBase()}" />
+							<f:textbox name="branchBase" value="${it.getDefaultSCMBranchBase()}" />
 						</f:entry>
 					</f:optionalBlock>
 					

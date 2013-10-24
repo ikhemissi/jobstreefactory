@@ -173,10 +173,6 @@ public class BranchAction implements PermalinkProjectAction {
                 }
                 return version;
         }
-        
-        public String getDefaultBranchBase() {
-		return "test scm branch base";
-	}
 
 	public String computeRepoDescription() {
 		StringBuilder sb = new StringBuilder();
@@ -194,6 +190,11 @@ public class BranchAction implements PermalinkProjectAction {
 		sb.append('-');
 		sb.append(computeBranchVersion());
 		return sb.toString();
+	}
+        
+        public String getDefaultSCMBranchBase() {
+                BranchBuildWrapper m2Wrapper = project.getBuildWrappersList().get(BranchBuildWrapper.class);
+		return m2Wrapper.getScmBranchBaseDefault();
 	}
 
 	public void doSubmit(StaplerRequest req, StaplerResponse resp) throws IOException, ServletException {

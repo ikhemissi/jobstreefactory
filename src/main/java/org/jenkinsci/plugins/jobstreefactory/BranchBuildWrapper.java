@@ -25,6 +25,7 @@ package org.jenkinsci.plugins.jobstreefactory;
 
 import hudson.Extension;
 import hudson.Launcher;
+import hudson.Util;
 import hudson.maven.AbstractMavenProject;
 import hudson.maven.MavenBuild;
 import hudson.maven.MavenModule;
@@ -36,22 +37,14 @@ import hudson.model.Result;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.model.Descriptor;
-import hudson.model.Hudson;
-import hudson.model.Item;
 import hudson.model.Run;
 import hudson.security.Permission;
-import hudson.security.PermissionGroup;
 import hudson.security.PermissionScope;
 import hudson.tasks.BuildWrapper;
 import hudson.tasks.BuildWrapperDescriptor;
 import hudson.tasks.Builder;
-import hudson.util.RunList;
 
 import java.io.IOException;
-import java.lang.reflect.Array;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
 import jenkins.model.Jenkins;
 
@@ -59,7 +52,6 @@ import jenkins.model.Jenkins;
 import net.sf.json.JSONObject;
 
 import org.apache.commons.lang.StringUtils;
-import org.jvnet.localizer.Localizable;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
 import org.slf4j.Logger;
@@ -81,6 +73,7 @@ public class BranchBuildWrapper extends BuildWrapper {
 	
 	private String                        scmUserEnvVar                = "";
 	private String                        scmPasswordEnvVar            = "";
+        private String                        scmBranchBaseDefault         = "";
 	private String                        releaseEnvVar                = DescriptorImpl.DEFAULT_RELEASE_ENVVAR;
 	private String                        releaseGoals                 = DescriptorImpl.DEFAULT_RELEASE_BRANCH_GOALS;
 	public boolean                        selectCustomScmCommentPrefix = DescriptorImpl.DEFAULT_SELECT_CUSTOM_SCM_COMMENT_PREFIX;
@@ -255,6 +248,10 @@ public class BranchBuildWrapper extends BuildWrapper {
 		return (build.getCause(BranchReason.class) != null);
 	}
 
+        
+        public String getScmBranchBaseDefault() {
+            return getDescriptor().getScmBranchBaseDefault();
+        }
 
 	/** Recreate the logger on de-serialisation. */
 	private Object readResolve() {
@@ -297,6 +294,7 @@ public class BranchBuildWrapper extends BuildWrapper {
 		public static final boolean    DEFAULT_SELECT_APPEND_HUDSON_USERNAME    = false;
 		public static final boolean    DEFAULT_SELECT_SCM_CREDENTIALS           = false;	
 
+                private String  scmBranchBaseDefault = "";
 
 		public DescriptorImpl() {
 			super(BranchBuildWrapper.class);
@@ -310,14 +308,25 @@ public class BranchBuildWrapper extends BuildWrapper {
 		}
 
 		@Override
-		public boolean configure(StaplerRequest staplerRequest, JSONObject json) throws FormException {
-			save();
-			return true; // indicate that everything is good so far
-		}
+                public boolean configure(StaplerRequest staplerRequest, JSONObject json) throws FormException {
+                        JSONObject globalConfParams = json.getJSONObject("globaljobstreefactory"); //$NON-NLS-1$
+                        scmBranchBaseDefault = Util.fixEmptyAndTrim(globalConfParams.getString("scmBranchBaseDefault")); //$NON-NLS-1$
+                        save();
+                        return true; // indicate that everything is good so far
+                }
 
 		@Override
 		public String getDisplayName() {
 			return Messages.Wrapper_DisplayName();
 		}
+                
+                public String getScmBranchBaseDefault() {
+			return scmBranchBaseDefault;
+		}
+                
+                public void setScmBranchBaseDefault(String scmBranchBaseDefault) {
+                        this.scmBranchBaseDefault = scmBranchBaseDefault;
+                }
+                
 	}
 }
